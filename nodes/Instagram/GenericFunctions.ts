@@ -12,6 +12,37 @@ import { NodeApiError } from 'n8n-workflow';
 // Token cache for performance
 const tokenCache = new Map<string, { token: string; expiresAt: number; lastCheck: number }>();
 
+/**
+ * Persist a refreshed token back into the n8n credential via the n8n public API.
+ * Requires N8N_TOKEN_REFRESH_API_KEY and N8N_TOKEN_REFRESH_BASE_URL in the n8n environment.
+ */
+async function persistRefreshedToken(credentialId: string, newToken: string): Promise<void> {
+	const apiKey = process.env.N8N_TOKEN_REFRESH_API_KEY;
+	const baseUrl = process.env.N8N_TOKEN_REFRESH_BASE_URL;
+
+	if (!apiKey || !baseUrl) {
+		console.log('⚠️ N8N_TOKEN_REFRESH_API_KEY/BASE_URL not set, skipping credential persistence');
+		return;
+	}
+
+	const res = await fetch(`${baseUrl}/credentials/${credentialId}`, {
+		method: 'PATCH',
+		headers: {
+			'Content-Type': 'application/json',
+			'X-N8N-API-KEY': apiKey,
+		},
+		body: JSON.stringify({
+			isPartialData: true,
+			data: { accessToken: newToken },
+		}),
+	});
+
+	if (!res.ok) {
+		const text = await res.text().catch(() => '');
+		throw new Error(`n8n API PATCH /credentials/${credentialId} failed: ${res.status} ${text}`);
+	}
+}
+
 
 /**
  * Get access token using Instagram Access Token API (Hybrid System)
@@ -28,8 +59,17 @@ export async function getAccessTokenAuto(
 		throw new Error('Instagram Access Token API credentials not found. Please configure your access token.');
 	}
 	
+	// Use the real n8n credential id so each account has its own cache and refresh target
+	let credentialId = 'default';
+	try {
+		const nodeCredentials = this.getNode().credentials;
+		credentialId = nodeCredentials?.instagramAccessTokenApi?.id || 'default';
+	} catch {
+		console.log('⚠️ Could not resolve credential id, using shared cache key');
+	}
+
 	// Use hybrid system for automatic refresh
-	return await getAccessTokenHybrid(this as IExecuteFunctions, 'default');
+	return await getAccessTokenHybrid(this as IExecuteFunctions, credentialId);
 }
 
 /**
@@ -262,17 +302,29 @@ export async function refreshAccessToken(
 			throw new Error('No access_token received from refresh endpoint');
 		}
 		
-		// Update cache
-		const cacheKey = `token_${credentialId}`;
+		// Update cache (prefer the real credential id from the node)
+		let realCredentialId = credentialId;
+		try {
+			const nodeCredentials = context.getNode().credentials;
+			realCredentialId = nodeCredentials?.instagramAccessTokenApi?.id || credentialId;
+		} catch {
+			console.log('⚠️ Could not resolve real credential id, falling back to', credentialId);
+		}
+		const cacheKey = `token_${realCredentialId}`;
 		tokenCache.set(cacheKey, {
 			token: newToken,
 			expiresAt: responseData.expires_in + Date.now() / 1000,
 			lastCheck: Date.now() / 1000,
 		});
 		
-		// Log for user to update credentials
-		console.log(`🔑 New token generated. Please update your Instagram Access Token API credential with: ${newToken}`);
-		console.log(`🔑 New token length: ${newToken.length}`);
+		// Persist the new token into the n8n credential
+		try {
+			await persistRefreshedToken(realCredentialId, newToken);
+			console.log(`✅ New token persisted to n8n credential ${realCredentialId}`);
+		} catch (persistError) {
+			console.log('❌ Failed to persist refreshed token to n8n credential:', (persistError as Error).message);
+			console.log('🔑 New token generated but NOT persisted. Update the credential manually.');
+		}
 		
 		return newToken;
 	} catch (error) {

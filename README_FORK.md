@@ -197,3 +197,9 @@ MIT License - veja [LICENSE.md](LICENSE.md) para detalhes.
 ---
 
 **Feito com ❤️ para a comunidade n8n** | [GitHub](https://github.com/SEU-USUARIO/n8n-nodes-insta-accessToken) | [npm](https://www.npmjs.com/package/n8n-nodes-insta-accessToken)
+
+## Alterações do fork lucascsilva1
+
+- **Send Button Template com Private Reply:** novo campo `Recipient Type` (`User ID (IGSID)` ou `Comment ID (Private Reply)`). Com `Comment ID`, o corpo vai com `recipient.comment_id` e a autenticação por header, permitindo mandar o botão a partir de um comentário.
+- **Persistência do token renovado:** quando o token é renovado, ele é gravado na credencial do n8n pela API pública. Requer as variáveis de ambiente `N8N_TOKEN_REFRESH_API_KEY` e `N8N_TOKEN_REFRESH_BASE_URL` (ex.: `https://seu-n8n/api/v1`) no n8n e no worker. Sem elas, a renovação funciona mas o token novo não é salvo.
+- **Cache por credencial:** o cache de token usa o ID real da credencial, em vez de uma chave `default` compartilhada entre contas.

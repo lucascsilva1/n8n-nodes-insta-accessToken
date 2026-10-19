@@ -550,6 +550,23 @@ export class Instagram implements INodeType {
 
 			// ==================== Send Button Template ====================
 			{
+				displayName: 'Recipient Type',
+				name: 'recipientType',
+				type: 'options',
+				options: [
+					{ name: 'User ID (IGSID)', value: 'id' },
+					{ name: 'Comment ID (Private Reply)', value: 'comment_id' },
+				],
+				displayOptions: {
+					show: {
+						resource: ['message'],
+						operation: ['sendButtonTemplate'],
+					},
+				},
+				default: 'id',
+				description: 'Send to a user (IGSID) or as a private reply to a comment (comment ID)',
+			},
+			{
 				displayName: 'Recipient ID',
 				name: 'recipientId',
 				type: 'string',
@@ -562,7 +579,7 @@ export class Instagram implements INodeType {
 				},
 				default: '',
 				placeholder: '1234567890',
-				description: 'Instagram-scoped user ID (IGSID) of the recipient',
+				description: 'Instagram-scoped user ID (IGSID) of the recipient, or the comment ID when Recipient Type is Comment ID',
 			},
 			{
 				displayName: 'Message Text',
@@ -1895,6 +1912,7 @@ export class Instagram implements INodeType {
 					// ==================== Send Button Template ====================
 					else if (operation === 'sendButtonTemplate') {
 						const recipientId = this.getNodeParameter('recipientId', i) as string;
+						const recipientType = this.getNodeParameter('recipientType', i, 'id') as string;
 						const messageText = this.getNodeParameter('messageText', i) as string;
 						const buttonsData = this.getNodeParameter('buttons', i) as any;
 
@@ -1915,7 +1933,7 @@ export class Instagram implements INodeType {
 						}
 
 						const body = {
-							recipient: { id: recipientId },
+							recipient: recipientType === 'comment_id' ? { comment_id: recipientId } : { id: recipientId },
 							message: {
 								attachment: {
 									type: 'template',
@@ -1928,7 +1946,14 @@ export class Instagram implements INodeType {
 							},
 						};
 
-						const responseData = await instagramApiRequest.call(this, 'POST', '/me/messages', body);
+						const responseData = await instagramApiRequest.call(
+							this,
+							'POST',
+							'/me/messages',
+							body,
+							{},
+							recipientType === 'comment_id' ? { useAuthHeader: true } : {},
+						);
 						returnData.push({ json: responseData, pairedItem: { item: i } });
 					}
 
